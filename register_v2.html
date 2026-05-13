@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daftar Kartu — Sistem Absensi RFID</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <!-- CryptoJS untuk AES enkripsi di browser -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+  <style>
+    :root {
+      --bg:           #f5f0e8;
+      --surface:      #faf7f2;
+      --border:       #d4c9b4;
+      --border-dark:  #a89880;
+      --accent:       #1a3a2a;
+      --accent-light: #2d6148;
+      --accent-pale:  #e8f0eb;
+      --text:         #1c1c1c;
+      --text-dim:     #5a5248;
+      --text-muted:   #9a9088;
+      --error:        #c0392b;
+      --error-bg:     #fdf0ee;
+      --warn:         #b7860a;
+      --warn-bg:      #fdf8ec;
+      --success:      #1a6b3a;
+      --success-bg:   #edf7f1;
+      --font-mono:    'Space Mono', monospace;
+      --font-body:    'Lato', sans-serif;
+      --radius:       4px;
+      --shadow:       0 2px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      background-image:
+        radial-gradient(circle at 20% 80%, rgba(45, 97, 72, 0.04) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(26, 58, 42, 0.03) 0%, transparent 50%);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+
+    /* =============================================
+       HEADER MARK
+    ============================================= */
+    .institution-mark {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .institution-mark::before,
+    .institution-mark::after {
+      content: '';
+      display: block;
+      width: 32px;
+      height: 1px;
+      background: var(--border-dark);
+    }
+
+    /* =============================================
+       CARD
+    ============================================= */
+    .card {
+      width: 100%;
+      max-width: 460px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-header {
+      background: var(--accent);
+      padding: 24px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-header::after {
+      content: 'RFID';
+      position: absolute;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: var(--font-mono);
+      font-size: 48px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.04);
+      letter-spacing: -0.05em;
+      user-select: none;
+    }
+
+    .card-header h1 {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
+
+    .card-header p {
+      font-size: 12px;
+      color: rgba(255,255,255,0.55);
+      font-weight: 300;
+      letter-spacing: 0.01em;
+    }
+
+    .card-body {
+      padding: 28px 32px 32px;
+    }
+
+    /* =============================================
+       STEPS INDICATOR
+    ============================================= */
+    .steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 28px;
+    }
+
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      transition: all 0.3s ease;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step.active   .step-dot { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .step.done     .step-dot { border-color: var(--success); background: var(--success); color: #fff; }
+    .step.done     .step-dot::after { content: '✓'; font-size: 12px; }
+    .step.done     .step-num { display: none; }
+
+    .step-num { font-size: 11px; }
+
+    .step-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+      letter-spacing: 0.05em;
+      font-family: var(--font-mono);
+    }
+
+    .step.active .step-label { color: var(--accent); }
+    .step.done   .step-label { color: var(--success); }
+
+    .step-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      margin-bottom: 22px;
+      max-width: 40px;
+    }
+
+    .step-line.done { background: var(--success); }
+
+    /* =============================================
+       UID DISPLAY
+    ============================================= */
+    .uid-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--accent-pale);
+      border: 1px solid #c2d9cb;
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      margin-bottom: 24px;
+    }
+
+    .uid-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+
+    .uid-info { flex: 1; min-width: 0; }
+
+    .uid-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .uid-value {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      word-break: break-all;
+    }
+
+    /* Timer */
+    .timer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .timer-label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .timer-badge {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--warn);
+      background: var(--warn-bg);
+      border: 1px solid #e8d07a;
+      border-radius: 100px;
+      padding: 2px 10px;
+    }
+
+    .timer-badge.urgent { color: var(--error); background: var(--error-bg); border-color: #e8a0a0; }
+
+    /* =============================================
+       FORM
+    ============================================= */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .divider-line { flex: 1; height: 1px; background: var(--border); }
+
+    .divider-text {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .form-group { margin-bottom: 16px; }
+
+    label {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .label-note {
+      font-family: var(--font-body);
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: none;
+      letter-spacing: 0;
+      float: right;
+      font-weight: 400;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input::placeholder { color: var(--text-muted); font-size: 13px; }
+
+    input:focus {
+      border-color: var(--accent-light);
+      box-shadow: 0 0 0 3px rgba(45, 97, 72, 0.1);
+    }
+
+    input.error { border-color: var(--error); }
+
+    .input-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Password toggle */
+    .input-wrapper { position: relative; }
+
+    .toggle-pass {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 4px;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .toggle-pass:hover { color: var(--text-dim); }
+
+    /* Security note */
+    .security-note {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      background: var(--warn-bg);
+      border: 1px solid #e8d07a;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 20px;
+      font-size: 12px;
+      color: var(--warn);
+      line-height: 1.5;
+    }
+
+    .security-note svg { flex-shrink: 0; margin-top: 1px; }
+
+    /* =============================================
+       BUTTON
+    ============================================= */
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn:hover:not(:disabled) { background: var(--accent-light); transform: translateY(-1px); }
+    .btn:active:not(:disabled) { transform: translateY(0); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .spinner {
+      display: none;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .btn.loading .btn-text { display: none; }
+    .btn.loading .spinner  { display: block; }
+
+    /* =============================================
+       ALERTS
+    ============================================= */
+    .alert {
+      display: none;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .alert.error   { display: block; background: var(--error-bg); border: 1px solid #e8a0a0; color: var(--error); }
+    .alert.success { display: block; background: var(--success-bg); border: 1px solid #9ac8b0; color: var(--success); }
+
+    /* =============================================
+       SUCCESS SCREEN
+    ============================================= */
+    .success-screen {
+      display: none;
+      padding: 16px 0;
+      text-align: center;
+      animation: slideUp 0.4s ease;
+    }
+
+    .check-circle {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--success-bg);
+      border: 2px solid var(--success);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes popIn {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+
+    .success-title {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .success-details {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+      margin-bottom: 16px;
+    }
+
+    .success-msg {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    .tap-demo {
+      margin-top: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent-pale);
+      border: 1px solid #c2d9cb;
+      border-radius: 100px;
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--accent);
+    }
+
+    /* =============================================
+       EXPIRED SCREEN
+    ============================================= */
+    .expired-screen {
+      display: none;
+      padding: 16px 0;
+      text-align: center;
+    }
+
+    .expired-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+
+    .expired-title {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--error);
+      margin-bottom: 8px;
+    }
+
+    .expired-msg {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* =============================================
+       FOOTER
+    ============================================= */
+    .footer {
+      margin-top: 20px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-muted);
+      text-align: center;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+
+<div class="institution-mark">Politeknik Negeri Bandung</div>
+
+<div class="card">
+  <div class="card-header">
+    <h1>Registrasi Kartu RFID</h1>
+    <p>Hubungkan KTM / Kartu Brizzi ke akun akademik kamu</p>
+  </div>
+
+  <div class="card-body">
+
+    <!-- ==================== FORM STATE ==================== -->
+    <div id="formState">
+
+      <!-- Steps -->
+      <div class="steps">
+        <div class="step done" id="step1">
+          <div class="step-dot"><span class="step-num">1</span></div>
+          <div class="step-label">Tap Kartu</div>
+        </div>
+        <div class="step-line done"></div>
+        <div class="step active" id="step2">
+          <div class="step-dot"><span class="step-num">2</span></div>
+          <div class="step-label">Isi Data</div>
+        </div>
+        <div class="step-line" id="line2"></div>
+        <div class="step" id="step3">
+          <div class="step-dot"><span class="step-num">3</span></div>
+          <div class="step-label">Selesai</div>
+        </div>
+      </div>
+
+      <!-- UID -->
+      <div class="uid-row">
+        <svg class="uid-icon" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="4" fill="#e8f0eb"/>
+          <rect x="6" y="10" width="20" height="12" rx="2" stroke="#1a3a2a" stroke-width="1.5" fill="none"/>
+          <rect x="9" y="14" width="6" height="4" rx="1" fill="#1a3a2a" opacity="0.4"/>
+          <line x1="18" y1="14" x2="23" y2="14" stroke="#1a3a2a" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+          <line x1="18" y1="17" x2="21" y2="17" stroke="#1a3a2a" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+        </svg>
+        <div class="uid-info">
+          <div class="uid-label">UID Kartu Terdeteksi</div>
+          <div class="uid-value" id="uidDisplay">—</div>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="timer-row">
+        <span class="timer-label">Sesi registrasi berakhir dalam</span>
+        <span class="timer-badge" id="timerBadge">10:00</span>
+      </div>
+
+      <!-- Alert -->
+      <div class="alert" id="alertBox"></div>
+
+      <!-- Divider -->
+      <div class="divider">
+        <div class="divider-line"></div>
+        <div class="divider-text">Data Akun Akademik</div>
+        <div class="divider-line"></div>
+      </div>
+
+      <!-- Form Fields -->
+      <div class="form-group">
+        <label for="nimInput">NIM</label>
+        <input type="text" id="nimInput" placeholder="231364XXX" maxlength="12" autocomplete="off" inputmode="numeric">
+      </div>
+
+      <div class="form-group">
+        <label for="namaInput">Nama Lengkap</label>
+        <input type="text" id="namaInput" placeholder="Nama sesuai KTM" autocomplete="name">
+      </div>
+
+      <div class="form-group">
+        <label for="passInput">
+          Password Akademik
+          <span class="label-note">akademik.polban.ac.id</span>
+        </label>
+        <div class="input-wrapper">
+          <input type="password" id="passInput" placeholder="Password portal akademik" autocomplete="current-password">
+          <button class="toggle-pass" onclick="togglePass()" type="button" id="toggleBtn">👁</button>
+        </div>
+        <div class="input-hint">Password dienkripsi sebelum disimpan. Tidak dapat dibaca oleh siapapun.</div>
+      </div>
+
+      <!-- Security notice -->
+      <div class="security-note">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" flex-shrink="0">
+          <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7l-9-5zm-1 6h2v2h-2V8zm0 4h2v6h-2v-6z"/>
+        </svg>
+        <span>Password dienkripsi (AES-256) di browser kamu <b>sebelum</b> dikirim ke server. Server hanya menyimpan data terenkripsi.</span>
+      </div>
+
+      <button class="btn" id="submitBtn" onclick="handleSubmit()">
+        <div class="spinner"></div>
+        <span class="btn-text">Daftarkan Kartu</span>
+      </button>
+    </div>
+
+    <!-- ==================== SUCCESS STATE ==================== -->
+    <div class="success-screen" id="successState">
+      <div class="check-circle">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="#1a6b3a">
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+        </svg>
+      </div>
+      <div class="success-title">Kartu Terdaftar!</div>
+      <div class="success-details" id="successDetails">—</div>
+      <p class="success-msg">
+        Kartu kamu sudah terhubung ke akun akademik.<br>
+        Mulai sekarang, cukup tap kartu untuk absensi.
+      </p>
+      <div class="tap-demo">
+        <span>🪪</span>
+        <span>Tap kartu → Absen otomatis</span>
+      </div>
+    </div>
+
+    <!-- ==================== EXPIRED STATE ==================== -->
+    <div class="expired-screen" id="expiredState">
+      <div class="expired-icon">⌛</div>
+      <div class="expired-title">Sesi Kadaluarsa</div>
+      <p class="expired-msg" id="expiredMsg">
+        Link registrasi ini sudah tidak valid.<br>
+        Tap kartu ke alat absensi lagi untuk<br>mendapatkan QR code baru.
+      </p>
+    </div>
+
+  </div><!-- /card-body -->
+</div><!-- /card -->
+
+<div class="footer">Sistem Absensi RFID &nbsp;·&nbsp; Teknik Otomasi Industri &nbsp;·&nbsp; Polban</div>
+
+<script>
+  // =============================================
+  //  KONFIGURASI — SESUAIKAN
+  // =============================================
+  const SUPABASE_URL      = "https://XXXXXXXXXXXX.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
+
+  // Shared secret key untuk enkripsi AES
+  // HARUS SAMA persis dengan AES_KEY di kode ESP
+  const AES_SECRET_KEY    = "GANTI_DENGAN_32_KARAKTER_RANDOM!!";
+
+  // =============================================
+  //  INIT
+  // =============================================
+  const params = new URLSearchParams(window.location.search);
+  const uid    = params.get("uid");
+  const token  = params.get("token");
+
+  let timerInterval = null;
+  let sessionValid  = false;
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    if (!uid || !token) {
+      showAlert("Link tidak valid. Buka halaman ini via scan QR dari alat absensi.", "error");
+      document.getElementById("submitBtn").disabled = true;
+      return;
+    }
+    document.getElementById("uidDisplay").textContent = uid.toUpperCase();
+    await validateToken();
+  });
+
+  // =============================================
+  //  TOGGLE PASSWORD VISIBILITY
+  // =============================================
+  function togglePass() {
+    const inp = document.getElementById("passInput");
+    const btn = document.getElementById("toggleBtn");
+    if (inp.type === "password") {
+      inp.type = "text";
+      btn.textContent = "🙈";
+    } else {
+      inp.type = "password";
+      btn.textContent = "👁";
+    }
+  }
+
+  // =============================================
+  //  SUPABASE HELPER
+  // =============================================
+  async function sbFetch(endpoint, method = "GET", body = null, extraHeaders = {}) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, {
+      method,
+      headers: {
+        "apikey":        SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type":  "application/json",
+        "Prefer":        "return=representation",
+        ...extraHeaders
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    return { status: res.status, data: await res.json().catch(() => null) };
+  }
+
+  // =============================================
+  //  AES ENCRYPT (CryptoJS)
+  //  Output: base64 string yang bisa di-decrypt ESP
+  // =============================================
+  function aesEncrypt(plaintext) {
+    const key = CryptoJS.enc.Utf8.parse(AES_SECRET_KEY.padEnd(32, '0').substring(0, 32));
+    const iv  = CryptoJS.enc.Utf8.parse("0000000000000000"); // 16 byte IV fixed (bisa random untuk lebih aman)
+    const enc = CryptoJS.AES.encrypt(plaintext, key, {
+      iv:      iv,
+      mode:    CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
+    });
+    return enc.toString(); // base64
+  }
+
+  // =============================================
+  //  VALIDATE TOKEN
+  // =============================================
+  async function validateToken() {
+    try {
+      const { status, data } = await sbFetch(
+        `registration_tokens?token=eq.${encodeURIComponent(token)}&uid_card=eq.${encodeURIComponent(uid)}&select=*`
+      );
+
+      if (status !== 200 || !data || data.length === 0) {
+        showExpired(); return;
+      }
+
+      const row = data[0];
+
+      if (row.used) {
+        showExpired("Token sudah digunakan sebelumnya."); return;
+      }
+
+      const createdAt = new Date(row.created_at);
+      const expireAt  = new Date(createdAt.getTime() + 10 * 60 * 1000);
+
+      if (new Date() > expireAt) {
+        showExpired(); return;
+      }
+
+      sessionValid = true;
+      startCountdown(expireAt);
+
+    } catch (e) {
+      showAlert("Gagal terhubung ke server. Periksa koneksi internet.", "error");
+      document.getElementById("submitBtn").disabled = true;
+    }
+  }
+
+  // =============================================
+  //  COUNTDOWN
+  // =============================================
+  function startCountdown(expireAt) {
+    function tick() {
+      const rem = Math.max(0, Math.floor((expireAt - new Date()) / 1000));
+      const m   = String(Math.floor(rem / 60)).padStart(2, "0");
+      const s   = String(rem % 60).padStart(2, "0");
+      const badge = document.getElementById("timerBadge");
+      badge.textContent = `${m}:${s}`;
+      badge.className   = `timer-badge${rem <= 60 ? " urgent" : ""}`;
+      if (rem === 0) { clearInterval(timerInterval); showExpired(); }
+    }
+    tick();
+    timerInterval = setInterval(tick, 1000);
+  }
+
+  // =============================================
+  //  SUBMIT
+  // =============================================
+  async function handleSubmit() {
+    if (!sessionValid) return;
+
+    const nim  = document.getElementById("nimInput").value.trim();
+    const nama = document.getElementById("namaInput").value.trim();
+    const pass = document.getElementById("passInput").value;
+
+    // Validasi
+    if (!nim || nim.length < 6) {
+      showAlert("NIM tidak valid. Masukkan NIM yang benar.", "error"); return;
+    }
+    if (!nama || nama.length < 3) {
+      showAlert("Nama terlalu pendek.", "error"); return;
+    }
+    if (!pass || pass.length < 4) {
+      showAlert("Password akademik tidak boleh kosong.", "error"); return;
+    }
+
+    setLoading(true);
+    clearAlert();
+
+    try {
+      // 1. Enkripsi password sebelum kirim ke server
+      const passwordEnc = aesEncrypt(pass);
+
+      // 2. Cek NIM sudah ada dengan kartu berbeda
+      const chkNim = await sbFetch(`mahasiswa?nim=eq.${encodeURIComponent(nim)}&select=nim,uid_card`);
+      if (chkNim.data && chkNim.data.length > 0) {
+        const ex = chkNim.data[0];
+        if (ex.uid_card && ex.uid_card !== uid.toUpperCase()) {
+          showAlert(`NIM ${nim} sudah terdaftar dengan kartu berbeda. Hubungi admin jika perlu ganti kartu.`, "error");
+          setLoading(false); return;
+        }
+      }
+
+      // 3. Cek UID sudah dipakai NIM lain
+      const chkUid = await sbFetch(`mahasiswa?uid_card=eq.${encodeURIComponent(uid.toUpperCase())}&select=nim`);
+      if (chkUid.data && chkUid.data.length > 0 && chkUid.data[0].nim !== nim) {
+        showAlert("Kartu ini sudah terdaftar untuk mahasiswa lain. Hubungi admin.", "error");
+        setLoading(false); return;
+      }
+
+      // 4. Upsert mahasiswa
+      let upsertOk = false;
+
+      if (chkNim.data && chkNim.data.length > 0) {
+        // Update (sudah ada, tambah/update uid_card & password)
+        const patch = await sbFetch(
+          `mahasiswa?nim=eq.${encodeURIComponent(nim)}`,
+          "PATCH",
+          { uid_card: uid.toUpperCase(), nama, password_enc: passwordEnc }
+        );
+        upsertOk = patch.status >= 200 && patch.status < 300;
+      } else {
+        // Insert baru
+        const ins = await sbFetch(
+          "mahasiswa",
+          "POST",
+          { nim, nama, uid_card: uid.toUpperCase(), password_enc: passwordEnc }
+        );
+        upsertOk = ins.status >= 200 && ins.status < 300;
+      }
+
+      if (!upsertOk) {
+        showAlert("Gagal menyimpan data. Coba lagi.", "error");
+        setLoading(false); return;
+      }
+
+      // 5. Tandai token used
+      await sbFetch(
+        `registration_tokens?token=eq.${encodeURIComponent(token)}`,
+        "PATCH",
+        { used: true }
+      );
+
+      // 6. Sukses
+      clearInterval(timerInterval);
+      showSuccess(nim, nama);
+
+    } catch (e) {
+      console.error(e);
+      showAlert("Terjadi kesalahan tidak terduga. Coba lagi.", "error");
+      setLoading(false);
+    }
+  }
+
+  // =============================================
+  //  UI HELPERS
+  // =============================================
+  function setLoading(v) {
+    const btn = document.getElementById("submitBtn");
+    btn.classList.toggle("loading", v);
+    btn.disabled = v;
+  }
+
+  function showAlert(msg, type = "error") {
+    const box = document.getElementById("alertBox");
+    box.textContent = msg;
+    box.className   = `alert ${type}`;
+  }
+
+  function clearAlert() {
+    const box = document.getElementById("alertBox");
+    box.className = "alert";
+    box.textContent = "";
+  }
+
+  function showSuccess(nim, nama) {
+    document.getElementById("formState").style.display    = "none";
+    document.getElementById("successState").style.display = "block";
+    document.getElementById("successDetails").textContent = `${nim} · ${nama}`;
+  }
+
+  function showExpired(msg = null) {
+    sessionValid = false;
+    clearInterval(timerInterval);
+    document.getElementById("formState").style.display    = "none";
+    document.getElementById("expiredState").style.display = "block";
+    if (msg) document.getElementById("expiredMsg").textContent = msg;
+  }
+</script>
+</body>
+</html>
