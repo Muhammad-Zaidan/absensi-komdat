@@ -685,8 +685,9 @@
   //  INIT
   // =============================================
   const params = new URLSearchParams(window.location.search);
-  const uid    = params.get("uid");
-  const token  = params.get("token");
+// SESUDAH (sesuai yang dikirim ESP):
+const uid   = params.get("u");
+const token = params.get("t");
 
   let timerInterval = null;
   let sessionValid  = false;
